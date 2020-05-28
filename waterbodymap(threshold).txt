@@ -5,9 +5,6 @@ var S1 = ee.ImageCollection('COPERNICUS/S1_GRD')
     .filterDate('2018-01-01','2019-04-01')
     .filter(ee.Filter.listContains('transmitterReceiverPolarisation','VV'));
 
-//Add first image in the map to get an idea of the SAR imagery
-//Map.addLayer(S1.first(), {bands:'VV', min:-18, max:0},'SAR Image');
-
 //Filter speckles noise
 var filterSpeckles = function(img) {
   var vv = img.select('VV') //select the VV polarization band
@@ -17,13 +14,10 @@ var filterSpeckles = function(img) {
 //Map speckle noise filter across the collections
 S1 = S1.map(filterSpeckles);
 
-//Add speckle filtered image to the map to compare with the original raw image
-//Map.addLayer(S1.first(), {bands:'VV_filtered', min:-18, max:0}, 'Filtered SAR Image');
-
-//Classify water area(We assume an arbitrary value that pixels below -16 db are water and others are non-water body)
+//Classify water area(Assuming an arbitrary value that pixels below -15 dB are water and others are non-water body)
 var classifyWater = function(img){
   var vv = img.select('VV_filtered')
-  var water = vv.lt(-14.38).rename('Water') //identify all pixels less than -16 and set them as 1 while others as 0
+  var water = vv.lt(-15).rename('Water') //identify all pixels less than -15 and set them as 1 while others as 0
   water = water.updateMask(water) //Remove all pixels equal to 0
   return img.addBands(water) //return image with added classified water band
 }
@@ -41,17 +35,17 @@ var ClassChart = ui.Chart.image.series({
   scale:10,
 })
   .setOptions({
-    title:'Inundated pixels',
+    title:'Inundation pixels',
     hAxis:{'title':'Date'},
-    vAxis:{'title':'inundated pixels'},
+    vAxis:{'title':'inundation pixels'},
     lineWidth:2
   }) 
 
 //Set the position of the chart and add it to the map
 ClassChart.style().set({
   position:'bottom-right',
-  width:'500px',
-  height:'400px'
+  width:'520px',
+  height:'410px'
 })
 
 Map.add(ClassChart)
