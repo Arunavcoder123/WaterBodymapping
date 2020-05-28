@@ -1,0 +1,96 @@
+
+//Load Sentinel-1 data and filter according to date
+var S1 = ee.ImageCollection('COPERNICUS/S1_GRD')
+    .filterBounds(roi)
+    .filterDate('2018-01-01','2019-04-01')
+    .filter(ee.Filter.listContains('transmitterReceiverPolarisation','VV'));
+
+//Add first image in the map to get an idea of the SAR imagery
+//Map.addLayer(S1.first(), {bands:'VV', min:-18, max:0},'SAR Image');
+
+//Filter speckles noise
+var filterSpeckles = function(img) {
+  var vv = img.select('VV') //select the VV polarization band
+  var vv_smoothed = vv.focal_median(100,'circle','meters').rename('VV_filtered') //Apply a focal median filter
+  return img.addBands(vv_smoothed) // Add filtered VV band to original image
+}
+//Map speckle noise filter across the collections
+S1 = S1.map(filterSpeckles);
+
+//Add speckle filtered image to the map to compare with the original raw image
+//Map.addLayer(S1.first(), {bands:'VV_filtered', min:-18, max:0}, 'Filtered SAR Image');
+
+//Classify water area(We assume an arbitrary value that pixels below -16 db are water and others are non-water body)
+var classifyWater = function(img){
+  var vv = img.select('VV_filtered')
+  var water = vv.lt(-14.38).rename('Water') //identify all pixels less than -16 and set them as 1 while others as 0
+  water = water.updateMask(water) //Remove all pixels equal to 0
+  return img.addBands(water) //return image with added classified water band
+}
+
+//Map classification across sentinel-1 and print to console to inspect
+S1 = S1.map(classifyWater);
+print(S1);
+
+//Add the time series plots to the panels
+//Make time series of water pixels in the region
+var ClassChart = ui.Chart.image.series({
+  imageCollection: S1.select('Water'),
+  region: roi,
+  reducer: ee.Reducer.sum(),
+  scale:10,
+})
+  .setOptions({
+    title:'Inundated pixels',
+    hAxis:{'title':'Date'},
+    vAxis:{'title':'inundated pixels'},
+    lineWidth:2
+  }) 
+
+//Set the position of the chart and add it to the map
+ClassChart.style().set({
+  position:'bottom-right',
+  width:'500px',
+  height:'400px'
+})
+
+Map.add(ClassChart)
+//Making the chart look interactive by adding fucntionalities
+//Create a label on the map
+var label = ui.Label('Click a point on the chart to show the image for that date');
+
+//Create a callback function that adds image to the map corresponding to the clicked data point on the map
+ClassChart.onClick(function(xValue, yValue, seriesName){
+  if(!xValue) return; //Selection was cleared
+  
+  //Show the image for the clicked date
+  var equalDate = ee.Filter.equals('system:time_start', xValue)
+  //Find image corresponding to the clicked data and clip water classification to the roi
+  var classification = ee.Image(S1.filter(equalDate).first()).clip(roi).select('Water');//this contains the classified image
+  var SARimage = ee.Image(S1.filter(equalDate).first());
+  //Make map layers based on SAR image, reset the map layers and add this new layer
+  var S1layer = ui.Map.Layer(SARimage, {
+    bands:['VV'],
+    max:0,
+    min:-20,
+  });
+  Map.layers().reset([S1layer]);
+  var visParams = {
+    min: 0,
+    max: 1,
+    palette:['#FFFFFF','#0000FF']
+    }
+    
+    //Add water classification on top of SAR image
+    Map.addLayer(classification, visParams, 'Water')
+    Export.image.toDrive({
+    image: SARimage.float(),
+    description: 'imageToDriveExample',
+    region: roi,
+    fileFormat: 'GeoTIFF',
+    scale: 10,
+    
+  });
+    //Show the label with the date on the map
+    label.setValue((new Date(xValue)).toUTCString());
+})
